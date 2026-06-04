@@ -47,5 +47,5 @@ python3 adas.py -d example.xml -o example.svg
 ```
 
 ## TODO
-- Add color mapping (map @color/X to hex)
-- Replace getopt with argparse
+- Add color mapping (map `@color/X` to `#hex`)
+- Replace `getopt` with `argparse`
