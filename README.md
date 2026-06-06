@@ -4,7 +4,7 @@ AndroidDrawableToSVG **(ADAS)** is a simple utility to convert an Android Drawab
 
 
 ## Requirements
-ADAS only requires Python 3.X, no additional packages or dependencies are needed!
+ADAS only requires Python 3.9+, no additional packages or dependencies are needed!
 
 
 ## Usage:
@@ -49,5 +49,4 @@ python3 adas.py -d example.xml -o example.svg
 ## TODO
 - Add support for complex DrawableVectors that require multiple `colors.xml` and `strings.xml` files.
 - Add support for `?attr`.
-- Replace the regex pattern used in `get_drawable_xml_pattern()` with XML parsing.
 - Replace `getopt` with `argparse`.

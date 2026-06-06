@@ -13,7 +13,7 @@ from os import path
 from re import compile, DOTALL, Pattern, RegexFlag, search, VERBOSE
 from typing import List, Dict, Optional
 from xml.etree import ElementTree
-from xml.etree.ElementTree import parse, ParseError
+from xml.etree.ElementTree import parse, ParseError, fromstring
 
 
 
@@ -21,9 +21,18 @@ from xml.etree.ElementTree import parse, ParseError
 
 
 #################### Constants #################### 
-SCRIPT_VERSION: str = "v0.0.1"
+
+# The current release of ADAS (as it stands, this is a pre-release).
+SCRIPT_VERSION: str = "v0.0.1-pre-release"
+
+# Used for re.search
 FLAGS: RegexFlag = VERBOSE | DOTALL
+
+# The default/fallback value for fillColor="X" if it cannot be parsed/converted.
 BLACK_HEX = "#000000"
+
+# The root namespace for the converted SVG file.
+XML_NAMESPACE = "http://www.w3.org/2000/svg"
 
 
 
@@ -64,11 +73,10 @@ COLORS_XML_FILEPATH: Optional[str] = None
 
 STRINGS_XML_FILEPATH: Optional[str] = None
 
-
-# This state variable is set to True if the flags "-c" or "--colors" are used.
+# This state variable is set to True if the flags "-c" or "--colors" are passed.
 USING_COLOR_RESOURCES: bool = False
 
-# This state variable is set to True if the flags "-s" or "--strings" are used.
+# This state variable is set to True if the flags "-s" or "--strings" are passed.
 USING_STRING_RESOURCES: bool = False
 
 # The map will be populated using COLORS_XML_FILE if USING_COLOR_RESOURCES is set to True.
@@ -115,17 +123,18 @@ def set_string_resource_map() -> None:
 def expand_fc_if_needed(fill_color: str) -> str:
     if not fill_color.startswith("#"): 
         return hex_str
-
-    if not len(fill_color) in [3, 4]:
+    
+    # Handling all other strings that start with a hashtag, but are not 4 or 4 chars in length
+    if not len(fill_color) in [4, 5]:
         return hex_str
 
     # Expanding #RGB to #RRGGBB
-    if len(fill_color) == 3:
-        return "#" + "".join([char*2 for char in fill_color])
+    if len(fill_color) == 4:
+        return "#" + "".join([char*2 for char in fill_color[1:]])
 
     # Expanding #RGBA to #RRGGBBAA
-    if len(fill_color) == 4:
-        return "#" + "".join([char*2 for char in fill_color])
+    if len(fill_color) == 5:
+        return "#" + "".join([char*2 for char in fill_color[1:]])
 
 
 # Checks if the current fill color is a color reference, if so, additional resolution is required.
@@ -353,41 +362,50 @@ def resolve_string_reference(string_reference_key: str) -> str:
 #################### Conversion/Output Functionality ####################
 
 # Used in convert_drawable_to_svg() to output the contents of the converted SVG.
-def write_output_svg(groups: Dict[str, any]):
+def write_output_svg(generic_attributes: Dict[str, str], paths: List[Dict[str, str]]):
     
-    original_fill_color: Optional[str] = groups["fillColor"] or BLACK_HEX
-    original_path_data: Optional[str] = groups["pathData"] or BLACK_HEX
+    path_elements = []
 
-    final_fill_color: str = original_fill_color
-    final_path_data: str = original_path_data
+    for path in paths:
+        original_fill_color: Optional[str] = path.get("fillColor") or BLACK_HEX
+        original_path_data: Optional[str] = path.get("pathData") or ""
 
+        final_fill_color: str = original_fill_color
+        final_path_data: str = original_path_data
 
+        if fc_has_color_reference(original_fill_color):
+            color_reference_key = original_fill_color.removeprefix("@color/")
+            final_fill_color = resolve_color_reference(color_reference_key)
 
-    if fc_has_color_reference(original_fill_color):
-        color_reference_key = original_fill_color.removeprefix("@color/")
-        final_fill_color = resolve_color_reference(color_reference_key)
-
-    if pd_has_string_reference(groups["pathData"]):
-        string_reference_key = original_path_data.removeprefix("@string/")
-        final_path_data = resolve_string_reference(string_reference_key)
-    
-    # Performing a conditional expansion of the final color, if required.
-    final_fill_color = expand_fc_if_needed(final_fill_color)
+        if pd_has_string_reference(original_path_data):
+            string_reference_key = original_path_data.removeprefix("@string/")
+            final_path_data = resolve_string_reference(string_reference_key)
         
+        # Performing a conditional expansion of the final color, if required.
+        final_fill_color = expand_fc_if_needed(final_fill_color)
+        
+        # Ensuring that if stroke color or stroke width are missing, the conversion is not impacted.
+        stroke_color = f' stroke="{path.get("strokeColor")}"' if path.get("strokeColor") else ""
+        stroke_width = f' stroke-width="{path.get("strokeWidth")}"' if path.get("strokeWidth") else ""
+        
+        # Building and appending each path element at the end of the current iteration.
+        # This needs to be rewritten to handle "fillType="
+        path_element = f'<path fill="{final_fill_color}"{stroke_color}{stroke_width} d="{final_path_data}"/>'
+        path_elements.append(path_element)
+    
+    # This could included in svg_contents directly, but for maintainability, it is declared as a standalone variable.
+    path_data = "\n\t\t".join(path_elements)
 
-    # Add color mapping then
-    # Replace fill="000000" with fill="{groups['fillColor']}" 
-    svg_content = f'''<svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        height="{groups['height']}" 
-        width="{groups['width']}" 
-        viewBox="0 0 {groups['viewportWidth']} {groups['viewportHeight']}">
-        <path 
-            fill="{final_fill_color}" 
-            stroke="{groups['strokeColor']}" 
-            stroke-width="{groups['strokeWidth']}" 
-            d="{final_path_data}"/>
-    </svg>'''
+    # Accessing the generic attributes directly is expected to be safe, as they are required for a valid input file.
+    # TODO: Fix the formatting of this for my OCD sake.
+    svg_content = f'''
+<svg 
+    xmlns="{XML_NAMESPACE}"
+    height="{generic_attributes.get('height')}" 
+    width="{generic_attributes.get('width')}" 
+    viewBox="0 0 {generic_attributes.get('viewportWidth')} {generic_attributes.get('viewportHeight')}">
+        {path_data}
+</svg>'''
 
     try:
         with open(OUTPUT_SVG_FILEPATH, "w", encoding="utf-8") as f:
@@ -413,23 +431,44 @@ def convert_drawable_to_svg():
 
     check_drawable_vector_format(drawable_vector_contents)
     
-    # Creating a regex object, which is used below to call re.search()
-    drawable_xml_pattern: Pattern = get_drawable_xml_pattern()
-
-    # Parsing the contents of the provided DrawableVector XML.
-    data_match = drawable_xml_pattern.search(drawable_vector_contents)
-
-    if not data_match:
-        print("[ERROR]: Unable to parse the specified file's contents using regular expression.")
+    try:
+        xml_root = fromstring(drawable_vector_contents)
+    except ParseError as e:
+        print("[ERROR]: Unable to parse the specified file's contents using ElementTree.")
         print("[INFO]: If this issue persists with an official AOSP vector, please make a bug report using the url below.")
         print("[LINK]: https://github.com/Static-Codes/AndroidDrawableToSVG/issues")
+        print(f"[ERROR]: {e}")
         exit(1)
 
-    groups: Dict[str, any] = data_match.groupdict()
+    android_namespace = "{http://schemas.android.com/apk/res/android}"
 
-    write_output_svg(groups)
+    # These attributes are to be expected in a properly formatted, AOSP-licensed DrawableVector. 
+    generic_attributes = {
+        "height": xml_root.get(f"{android_namespace}height", ""),
+        "width": xml_root.get(f"{android_namespace}width", ""),
+        "viewportHeight": xml_root.get(f"{android_namespace}viewportHeight", ""),
+        "viewportWidth": xml_root.get(f"{android_namespace}viewportWidth", "")
+    }
 
+    # This will be populated assuming root.findall() locates <path> elements within the XML root namespace.
+    nodes = []
+    
+    # Iterating through each of the path nodes in the DrawableVector XML's root namespace.
+    # In hindsight it was very much a mistake to use Regex for this initially.
+    # TODO: Add fillType support through string resolution.
+    for node in xml_root.findall(".//path"):
+        nodes.append({
+            "fillColor": node.get(f"{android_namespace}fillColor", ""),
+            "strokeColor": node.get(f"{android_namespace}strokeColor", ""),
+            "strokeWidth": node.get(f"{android_namespace}strokeWidth", ""),
+            "pathData": node.get(f"{android_namespace}pathData", "")
+        })
 
+    if not nodes:
+        print(f"[WARNING]: No <path> elements were found in {DRAWABLE_XML_FILEPATH}.")
+        print("[WARNING]: This will likely impact the quality of the converted SVG.")
+
+    write_output_svg(generic_attributes, nodes)
 
 
 
@@ -507,7 +546,6 @@ def set_args(argv: List[str]):
             
             global USING_STRING_RESOURCES
             USING_STRING_RESOURCES = True
-
 
         # Handles both "adas.py -v" and "adas.py --version"
         elif opt == "-v" or opt == "--version":
