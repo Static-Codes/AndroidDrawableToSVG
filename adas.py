@@ -122,7 +122,7 @@ def set_string_resource_map() -> None:
 # An expanded fill_color will be returned if the length is 3 or 4, otherwise, the original value is returned.
 def expand_fc_if_needed(fill_color: str) -> str:
     if not fill_color.startswith("#"): 
-        return hex_str
+        return fill_color
     
     # Handling all other strings that start with a hashtag, but are not 4 or 4 chars in length
     if not len(fill_color) in [4, 5]:
