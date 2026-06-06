@@ -362,35 +362,49 @@ def resolve_string_reference(string_reference_key: str) -> str:
 #################### Conversion/Output Functionality ####################
 
 # Used in convert_drawable_to_svg() to output the contents of the converted SVG.
-def write_output_svg(generic_attributes: Dict[str, str], paths: List[Dict[str, str]]):
+def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, str]]):
     
     path_elements = []
 
-    for path in paths:
-        original_fill_color: Optional[str] = path.get("fillColor") or BLACK_HEX
-        original_path_data: Optional[str] = path.get("pathData") or ""
-
-        final_fill_color: str = original_fill_color
-        final_path_data: str = original_path_data
-
-        if fc_has_color_reference(original_fill_color):
-            color_reference_key = original_fill_color.removeprefix("@color/")
+    for path_node in paths:
+        final_fill_color: str = path_node.get("fillColor") or BLACK_HEX
+        final_path_data: str = path_node.get("pathData") or ""
+        final_fill_type: str = path_node.get("fillType") or ""
+        
+        # Handling color references via string resolution.
+        if fc_has_color_reference(final_fill_color):
+            color_reference_key = final_fill_color.removeprefix("@color/")
             final_fill_color = resolve_color_reference(color_reference_key)
 
-        if pd_has_string_reference(original_path_data):
-            string_reference_key = original_path_data.removeprefix("@string/")
+        # Handling string references via string resolution.
+        if pd_has_string_reference(final_path_data):
+            string_reference_key = final_path_data.removeprefix("@string/")
             final_path_data = resolve_string_reference(string_reference_key)
         
         # Performing a conditional expansion of the final color, if required.
         final_fill_color = expand_fc_if_needed(final_fill_color)
         
-        # Ensuring that if stroke color or stroke width are missing, the conversion is not impacted.
-        stroke_color = f' stroke="{path.get("strokeColor")}"' if path.get("strokeColor") else ""
-        stroke_width = f' stroke-width="{path.get("strokeWidth")}"' if path.get("strokeWidth") else ""
-        
         # Building and appending each path element at the end of the current iteration.
-        # This needs to be rewritten to handle "fillType="
-        path_element = f'<path fill="{final_fill_color}"{stroke_color}{stroke_width} d="{final_path_data}"/>'
+        path_element = '<path fill="' + final_fill_color + '"'
+        
+        # Conditionally appending the result from the conversion "fillColor=" to "fill-rule=", if present.
+        # Unlike the other optional arguments, the value for the SVG fill-rule attribute must be all lowercase.
+        # Per: https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Attribute/fill-rule
+        if final_fill_type:
+            path_element += ' fill-rule="' + final_fill_type.lower() + '"'
+
+        # Conditionally appending the result from the conversion "strokeColor=" to "stoke=", if present.
+        if path_node.get("strokeColor"):
+            path_element += ' stroke="' + path_node.get("strokeColor") + '"'
+
+        # Conditionally appending the result from the conversion "strokeColor=" to "stoke=", if present.
+        if path_node.get("strokeWidth"):
+            path_element += ' stroke-width="' + path_node.get("strokeWidth") + '"'
+
+        # An SVG is nothing if not for path data, so this is an expected value.
+        path_element += ' d="' + final_path_data + '"/>'
+        
+        # Appending the concatenated element and continuing with the current iterator.
         path_elements.append(path_element)
     
     # This could included in svg_contents directly, but for maintainability, it is declared as a standalone variable.
@@ -401,9 +415,9 @@ def write_output_svg(generic_attributes: Dict[str, str], paths: List[Dict[str, s
     svg_content = f'''
 <svg 
     xmlns="{XML_NAMESPACE}"
-    height="{generic_attributes.get('height')}" 
-    width="{generic_attributes.get('width')}" 
-    viewBox="0 0 {generic_attributes.get('viewportWidth')} {generic_attributes.get('viewportHeight')}">
+    height="{metadata_attributes.get('height')}" 
+    width="{metadata_attributes.get('width')}" 
+    viewBox="0 0 {metadata_attributes.get('viewportWidth')} {metadata_attributes.get('viewportHeight')}">
         {path_data}
 </svg>'''
 
@@ -442,8 +456,8 @@ def convert_drawable_to_svg():
 
     android_namespace = "{http://schemas.android.com/apk/res/android}"
 
-    # These attributes are to be expected in a properly formatted, AOSP-licensed DrawableVector. 
-    generic_attributes = {
+    # These metadata attributes are to be expected in a properly formatted, AOSP-licensed DrawableVector. 
+    metadata_attributes = {
         "height": xml_root.get(f"{android_namespace}height", ""),
         "width": xml_root.get(f"{android_namespace}width", ""),
         "viewportHeight": xml_root.get(f"{android_namespace}viewportHeight", ""),
@@ -455,20 +469,24 @@ def convert_drawable_to_svg():
     
     # Iterating through each of the path nodes in the DrawableVector XML's root namespace.
     # In hindsight it was very much a mistake to use Regex for this initially.
-    # TODO: Add fillType support through string resolution.
     for node in xml_root.findall(".//path"):
         nodes.append({
             "fillColor": node.get(f"{android_namespace}fillColor", ""),
+            "fillType": node.get(f"{android_namespace}fillType", ""),
             "strokeColor": node.get(f"{android_namespace}strokeColor", ""),
             "strokeWidth": node.get(f"{android_namespace}strokeWidth", ""),
             "pathData": node.get(f"{android_namespace}pathData", "")
         })
 
+    # Informing the end-user of a non-fatal error, mostly for debugging purposes.
     if not nodes:
         print(f"[WARNING]: No <path> elements were found in {DRAWABLE_XML_FILEPATH}.")
         print("[WARNING]: This will likely impact the quality of the converted SVG.")
 
-    write_output_svg(generic_attributes, nodes)
+    # Finally, the output operation is complete (assuming this doesnt raise an exception.)
+    write_output_svg(metadata_attributes, nodes)
+
+
 
 
 
