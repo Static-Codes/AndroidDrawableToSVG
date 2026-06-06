@@ -516,8 +516,7 @@ def usage():
 
     print(
         "8.    [ -v <version> | --version=<version> ]\n"
-        "\tBy default auto2cmake pins minimum version support to CMake 2.8+\n"
-        "\tBy passing this flag, auto2cmake will use the specified version.\n"
+        "\tPrints the current version of ADAS.\n"
     )
 
 
