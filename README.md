@@ -1,14 +1,29 @@
 # AndroidDrawableToSVG
 
-AndroidDrawableToSVG **(ADAS)** is a simple utility to convert an Android DrawableVector to a universal SVG.
+AndroidDrawableToSVG **(ADAS)** is a simple and lightweight utility to convert an Android DrawableVector to a universal SVG.
 
 
 ## Requirements
 ADAS only requires Python 3.9+, no additional packages or dependencies are needed!
 
 
-## Usage:
-ADAS is both lightweight and user-friendly!
+## Simple Usage:
+
+Once you've cloned the repository, you can test **ADAS** by executing:
+#### Windows
+
+```bash
+python adas.py -d example.xml -o example.svg
+```
+
+#### Linux/MacOS
+
+```bash
+python3 adas.py -d example.xml -o example.svg
+```
+
+
+## Advanced Usage:
 
 #### Windows
 
@@ -33,20 +48,6 @@ python3 adas.py [OPTIONS]
 | `-v`, `--version=<version>` | Prints the current version of ADAS. | No |
 
 
-## Try it yourself
-
-Once you've cloned the repository, you can test **ADAS** by executing:
-#### Windows
-
-```bash
-python adas.py -d example.xml -o example.svg
-```
-
-#### Linux/MacOS
-
-```bash
-python3 adas.py -d example.xml -o example.svg
-```
 
 ## TODO
 - Add support for complex DrawableVectors that require multiple `colors.xml` and `strings.xml` files.
