@@ -47,5 +47,7 @@ python3 adas.py -d example.xml -o example.svg
 ```
 
 ## TODO
-- Add color mapping (map `@color/X` to `#hex`)
-- Replace `getopt` with `argparse`
+- Add support for complex DrawableVectors that require multiple `colors.xml` and `strings.xml` files.
+- Add support for `?attr`.
+- Refine the regex pattern used in `get_drawable_xml_pattern()`
+- Replace `getopt` with `argparse`.
