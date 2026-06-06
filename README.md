@@ -27,8 +27,10 @@ python3 adas.py [OPTIONS]
 | :--- | :--- | :--- |
 | `-h`, `--help` | Displays more detailed information on supported commands. | No |
 | `-d`, `--drawable=<path/to/drawable.xml>` | Defines the drawable you wish to convert. | **Yes** |
-| `-o`, `--output=<path/to/output.svg>` | Defines the filename to used for the converted SVG. | **Yes** |
-| `-v`, `--version=<version>` | Prints the version of ADAS. | No |
+| `-o`, `--output=<path/to/output.svg>` | Defines the filename/filepath to used for the converted SVG. | **Yes** |
+| `-c`, `--colors=<path/to/colors.xml>` | Defines the filepath to used for resolving color references. | **No** |
+| `-s`, `--strings=<path/to/strings.xml>` | Defines the filepath to used for resolving string references. | **No** |
+| `-v`, `--version=<version>` | Prints the current version of ADAS. | No |
 
 
 ## Try it yourself
