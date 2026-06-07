@@ -29,10 +29,38 @@ SCRIPT_VERSION: str = "v0.0.1-pre-release"
 FLAGS: RegexFlag = VERBOSE | DOTALL
 
 # The default/fallback value for fillColor="X" if it cannot be parsed/converted.
-BLACK_HEX = "#000000"
+BLACK_HEX: str = "#000000"
+
+# The regex pattern used by fc_is_already_hex()
+# After multiple implementations, regex has been found to be more reliable than using base 16/32 conversion.
+HEX_COLOR_PATTERN: Pattern = compile(r'^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{4}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})$')
 
 # The root namespace for the converted SVG file.
-XML_NAMESPACE = "http://www.w3.org/2000/svg"
+SVG_NAMESPACE: str = "http://www.w3.org/2000/svg"
+
+ANDROID_NAMESPACE: str = "{http://schemas.android.com/apk/res/android}"
+
+# Prefix strings used during color resolution of non-16-bit integers.
+USER_MADE_COLOR_PREFIX = "@color/"
+SDK_COLOR_PREFIX = "@android:color/"
+
+# A collection of built-in color names from the Android SDK and their associated Hex Values.
+# Pulled from https://developer.android.com/reference/android/graphics/Color#constants_1
+# The alpha channels were removed for 16 bit integer compatibility.
+GRAPHICS_COLOR_MAP: Dict[str, str] = {
+    "black": BLACK_HEX,
+    "blue": "#0000FF",
+    "cyan": "#00FFFF",
+    "dkgray": "#444444",
+    "gray": "#888888",
+    "green": "#00FF00",
+    "ltgray": "#CCCCCC",
+    "magenta": "#FF00FF",
+    "red": "#FF0000",
+    "transparent": "#00000000",
+    "white": "#FFFFFF",
+    "yellow": "#FFFF00"
+}
 
 
 
@@ -80,10 +108,10 @@ USING_COLOR_RESOURCES: bool = False
 USING_STRING_RESOURCES: bool = False
 
 # The map will be populated using COLORS_XML_FILE if USING_COLOR_RESOURCES is set to True.
-COLOR_RESOURCES_MAP: Dict[str, str] = []
+COLOR_RESOURCES_MAP: Dict[str, str] = {}
 
 # The map will be populated using STRINGS_XML_FILEPATH if USING_STRING_RESOURCES is set to True.
-STRING_RESOURCES_MAP: Dict[str, str] = []
+STRING_RESOURCES_MAP: Dict[str, str] = {}
 
 
 
@@ -124,17 +152,48 @@ def expand_fc_if_needed(fill_color: str) -> str:
     if not fill_color.startswith("#"): 
         return fill_color
     
-    # Handling all other strings that start with a hashtag, but are not 4 or 4 chars in length
-    if not len(fill_color) in [4, 5]:
-        return hex_str
+    length = len(fill_color)
+    
+    red: Optional[str] = None
+    green: Optional[str] = None
+    blue: Optional[str] = None
+    alpha: Optional[str] = None
 
-    # Expanding #RGB to #RRGGBB
-    if len(fill_color) == 4:
-        return "#" + "".join([char*2 for char in fill_color[1:]])
+    # Expanding 3 char hex sequences to 6 char sequences.
+    # "#RGB" -> "#RRBBGG"
+    if length == 4:
+        red = fill_color[1]
+        green = fill_color[2]
+        blue = fill_color[3]
 
-    # Expanding #RGBA to #RRGGBBAA
-    if len(fill_color) == 5:
-        return "#" + "".join([char*2 for char in fill_color[1:]])
+        return f"#{red*2}{green*2}{blue*2}"
+
+    # Expanding 4 char hex sequences to 8 char hex sequences
+    # Noteably, this involves flipping the alpha channel, from the first two chars of the sequence to the last two.
+    # Without this, previous implementations had transparency and color mismatching issues.
+    # Pulled from: https://observablehq.com/@dralletje/android-xml-to-svg#cell-203
+    elif length == 5:
+        alpha = fill_color[1]
+        red = fill_color[2]
+        green = fill_color[3]
+        blue = fill_color[4]
+
+        return f"#{red*2}{green*2}{blue*2}{alpha*2}"
+
+    # Much 4 char hex sequences, 8 char sequences also require alpha channel flipping.
+    # There are other aspects of SVG compliance that were covered in the guide above, however, none apply here.
+    elif length == 9:
+        alpha = fill_color[1] + fill_color[2]
+        red = fill_color[3] + fill_color[4]
+        green = fill_color[5] + fill_color[6]
+        blue = fill_color[7] + fill_color[8]
+
+        return f"#{red}{green}{blue}{alpha}"
+
+    # Falling back to original input, since it can't safely be expanded.
+    return fill_color
+
+    
 
 
 # Checks if the current fill color is a color reference, if so, additional resolution is required.
@@ -142,32 +201,20 @@ def fc_has_color_reference(fill_color: str) -> bool:
     if not isinstance(fill_color, str):
         return False
 
-    return False if not fill_color else "@color/" in fill_color
+    # Checking if a user defined color prefix is present.
+    elif fill_color.startswith(USER_MADE_COLOR_PREFIX):
+        return True
 
+    # Checking if a built-in SDK color is present.
+    elif fill_color.startswith(SDK_COLOR_PREFIX):
+        return True
+
+    return False
+    
 
 # Checking if a hex sequence is valid PRIOR to any conversion attempts, ultimately to save cpu cycles.
 def fc_is_already_hex(fill_color: str) -> bool:
-
-    color_length = len(fill_color)
-
-    # Ensures the fill color has the correct formatting (#RRBBGG) or (#RRBBGGAA).
-    if not (fill_color.startswith("#") and (color_length in [7, 9])):
-        return False
-    
-    # Ensuring the hex sequence can be successfully converted to a base-16 integer.
-    # This handles individual character validation from 0-9 and A-Z respectively.
-    # Finally, the hex sequence to compared against the max value for each to ensure a valid color is present.
-    try:
-        hex_as_int_repr = int(fill_color[1:], base=16)
-
-        # Handling the max value for both #RRGGBB and #RRBBGGAA
-        max_int_value = 0xFFFFFF if color_length == 7 else 0xFFFFFFFF
-
-        return hex_as_int_repr <= max_int_value 
-
-    except Exception as e: # Silently returning as this in a non-fatal exception.
-        print(f"[INFO]: Hex conversion required for fill color '{fill_color}'")
-        return False
+    return True if HEX_COLOR_PATTERN.fullmatch(fill_color) else False
 
 
 # Checking if the provided contents contains the Android Open Source Project (AOSP)'s Copyright.
@@ -219,35 +266,6 @@ def check_drawable_vector_format(drawable_vector_contents: str):
 
 #################### File Parsing Functionality ####################
 
-def get_drawable_xml_pattern() -> Pattern:
-    
-    VECTOR_HEADER = r"""
-        <vector\s+
-            xmlns:android="http://schemas\.android\.com/apk/res/android"
-            \s+android:height="(?P<height>.*)"
-            \s+android:width="(?P<width>.*)"
-            \s+android:viewportHeight="(?P<viewportHeight>.*)"
-            \s+android:viewportWidth="(?P<viewportWidth>.*)"
-        >
-    """
-
-    PATH_BODY = r"""
-        \s*<path
-            \s+android:fillColor="@color/(?P<fillColor>.*)"
-            \s+android:strokeColor="@color/(?P<strokeColor>.*)"
-            \s+android:strokeWidth="(?P<strokeWidth>.*)"
-            \s+android:pathData="(?P<pathData>.*)"
-        />
-    """
-
-    VECTOR_CLOSING_TAG = r"\s*</vector>"
-
-    PATTERN = VECTOR_HEADER + PATH_BODY + VECTOR_CLOSING_TAG
-
-    return compile(PATTERN, FLAGS)
-
-    # Left to allow for easier debugging on regex101.com
-    # return compile("<vector xmlns:android=\"http://schemas\.android\.com/apk/res/android\"\n\s{1,}android:height=\"(?P<height>.*)\"\n\s{1,}android:width=\"(?P<width>.*)\"\n\s{1,}android:viewportHeight=\"(?P<viewportHeight>.*)\"\n\s{1,}android:viewportWidth=\"(?P<viewportWidtht>.*)\">\n{1,}\s{1,}<path\n\s{1,}android:fillColor=\"@color/(?P<fillColor>.*)\"\n\s{1,}android:strokeColor=\"@color/(?P<strokeColor>.*)\"\n\s{1,}android:strokeWidth=\"(?P<strokeWidth>.*)\"\n\s{1,}android:pathData=\"(?P<pathData>.*)\"/>\n{1,}</vector>")
 
 # Parses the DrawableVector XML and returns its contents as a string, or exits on an exception.
 def load_drawable_vector_xml(drawable_vector_path: str) -> str:
@@ -320,20 +338,31 @@ def load_string_map_xml(string_xml_path: str) -> Dict[str, str]:
 # If the referenced string is already in hex:
 #   - The current value is returned without modifications.
 #
-# If the referenced string is a color reference (starts with "@color/") 
-#   - A lookup is performed using the color map from COLOR_RESOURCES_MAP
+# If the referenced string is a color reference:
+#   - It starts with either "@android:color/" or "@color/" (if user-defined) 
+#   - A lookup is performed on this key using COLOR_RESOURCES_MAP
 
 def resolve_color_reference(color_reference_key: str) -> str:
 
-    result = (COLOR_RESOURCES_MAP or {}).get(color_reference_key)
+    result: Optional[str] = None
 
+    # Removing the SDK prefix then returning the built-in color's equivalent Hex Code.
+    if color_reference_key.startswith("@android:color/"):
+        color_reference_key = color_reference_key.removeprefix("@android:color/")
+        result = (GRAPHICS_COLOR_MAP or {}).get(color_reference_key)
+    
+    # Removing the color resource prefix then returning the user-defined Hex Code representation.
+    elif color_reference_key.startswith("@color/"):
+        color_reference_key = color_reference_key.removeprefix("@color/")
+        result = (COLOR_RESOURCES_MAP or {}).get(color_reference_key)
+
+    # Warning the user the resolution failed and ADAS will fallback to BLACK_HEX (#000000)
     if not result:
         print(f"[WARNING]: Could not locate the specified key '{color_reference_key}'.")
         print(f"[INFO]: Falling back to '{BLACK_HEX}'")
         return BLACK_HEX
 
     
-
 
     # Ensuring the resolved resource value is a valid hex sequence.
     # If the value is valid, it is returned, otherwise, BLACK_HEX is returned.
@@ -342,7 +371,7 @@ def resolve_color_reference(color_reference_key: str) -> str:
 
 # Takes a resolved string resource from string.xml as input.
 #
-# A lookup is performed using the string map from STRING_RESOURCES_MAP.
+# A lookup is performed using STRING_RESOURCES_MAP.
 
 def resolve_string_reference(string_reference_key: str) -> str:
     if not string_reference_key:
@@ -361,11 +390,21 @@ def resolve_string_reference(string_reference_key: str) -> str:
 
 #################### Conversion/Output Functionality ####################
 
-# Used in convert_drawable_to_svg() to output the contents of the converted SVG.
-def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, str]]):
+# Sanitizing numeric strings, namely the height and width properties that usually contain units.
+# While modern browsers will usually default to pixels when faced with an unsupported unit, this ensures broad compatibility.
+def remove_units_from_numeric_string(numeric_string: str):
+    return (numeric_string
+        .replace("dp", "")
+        .replace("px", "")
+        .replace("dip", "")
+    )
+
+
+# Parses each path node from the provided list of paths. 
+def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
     
     path_elements = []
-
+    
     for path_node in paths:
         final_fill_color: str = path_node.get("fillColor") or BLACK_HEX
         final_path_data: str = path_node.get("pathData") or ""
@@ -373,8 +412,7 @@ def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, 
         
         # Handling color references via string resolution.
         if fc_has_color_reference(final_fill_color):
-            color_reference_key = final_fill_color.removeprefix("@color/")
-            final_fill_color = resolve_color_reference(color_reference_key)
+            final_fill_color = resolve_color_reference(final_fill_color)
 
         # Handling string references via string resolution.
         if pd_has_string_reference(final_path_data):
@@ -407,19 +445,38 @@ def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, 
         # Appending the concatenated element and continuing with the current iterator.
         path_elements.append(path_element)
     
-    # This could included in svg_contents directly, but for maintainability, it is declared as a standalone variable.
-    path_data = "\n\t\t".join(path_elements)
+    return path_elements
 
-    # Accessing the generic attributes directly is expected to be safe, as they are required for a valid input file.
-    # TODO: Fix the formatting of this for my OCD sake.
-    svg_content = f'''
-<svg 
-    xmlns="{XML_NAMESPACE}"
-    height="{metadata_attributes.get('height')}" 
-    width="{metadata_attributes.get('width')}" 
-    viewBox="0 0 {metadata_attributes.get('viewportWidth')} {metadata_attributes.get('viewportHeight')}">
+
+# Used in convert_drawable_to_svg() to output the contents of the converted SVG.
+def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, str]]):
+    
+    # This list holds all <path> elements that were parsed from the input XML.
+    path_elements: List[str] = parse_nodes_from_xml_paths(paths)
+    
+    # This could included in svg_contents directly, but for maintainability, it is declared as a standalone variable.
+    path_data: str = "\n".join(path_elements)
+
+    # Sanitizing the SVG height/width, alongside the viewbox height/width to ensure broad compatibility with older browsers.
+    height: str = remove_units_from_numeric_string(
+        metadata_attributes.get('height', '0')
+    )
+    width: str = remove_units_from_numeric_string(
+        metadata_attributes.get('width', '0')
+    )
+    viewport_width: str = remove_units_from_numeric_string(
+        metadata_attributes.get('viewportWidth', '0')
+    )
+    viewport_height: str = remove_units_from_numeric_string(
+        metadata_attributes.get('viewportHeight', '0')
+    )
+
+    view_box: str = f"0 0 {viewport_width} {viewport_height}"
+
+    svg_content: str = f'''
+    <svg xmlns="{SVG_NAMESPACE}" height="{height}" width="{width}" viewBox="{view_box}">
         {path_data}
-</svg>'''
+    </svg>'''.replace("    ", "")
 
     try:
         with open(OUTPUT_SVG_FILEPATH, "w", encoding="utf-8") as f:
@@ -454,14 +511,13 @@ def convert_drawable_to_svg():
         print(f"[ERROR]: {e}")
         exit(1)
 
-    android_namespace = "{http://schemas.android.com/apk/res/android}"
-
+    
     # These metadata attributes are to be expected in a properly formatted, AOSP-licensed DrawableVector. 
     metadata_attributes = {
-        "height": xml_root.get(f"{android_namespace}height", ""),
-        "width": xml_root.get(f"{android_namespace}width", ""),
-        "viewportHeight": xml_root.get(f"{android_namespace}viewportHeight", ""),
-        "viewportWidth": xml_root.get(f"{android_namespace}viewportWidth", "")
+        "height": xml_root.get(f"{ANDROID_NAMESPACE}height", ""),
+        "width": xml_root.get(f"{ANDROID_NAMESPACE}width", ""),
+        "viewportHeight": xml_root.get(f"{ANDROID_NAMESPACE}viewportHeight", ""),
+        "viewportWidth": xml_root.get(f"{ANDROID_NAMESPACE}viewportWidth", "")
     }
 
     # This will be populated assuming root.findall() locates <path> elements within the XML root namespace.
@@ -471,11 +527,11 @@ def convert_drawable_to_svg():
     # In hindsight it was very much a mistake to use Regex for this initially.
     for node in xml_root.findall(".//path"):
         nodes.append({
-            "fillColor": node.get(f"{android_namespace}fillColor", ""),
-            "fillType": node.get(f"{android_namespace}fillType", ""),
-            "strokeColor": node.get(f"{android_namespace}strokeColor", ""),
-            "strokeWidth": node.get(f"{android_namespace}strokeWidth", ""),
-            "pathData": node.get(f"{android_namespace}pathData", "")
+            "fillColor": node.get(f"{ANDROID_NAMESPACE}fillColor", ""),
+            "fillType": node.get(f"{ANDROID_NAMESPACE}fillType", ""),
+            "strokeColor": node.get(f"{ANDROID_NAMESPACE}strokeColor", ""),
+            "strokeWidth": node.get(f"{ANDROID_NAMESPACE}strokeWidth", ""),
+            "pathData": node.get(f"{ANDROID_NAMESPACE}pathData", "")
         })
 
     # Informing the end-user of a non-fatal error, mostly for debugging purposes.
@@ -515,7 +571,7 @@ def usage():
     )
 
     print(
-        "8.    [ -v <version> | --version=<version> ]\n"
+        "4.    [ -v <version> | --version=<version> ]\n"
         "\tPrints the current version of ADAS.\n"
     )
 
