@@ -41,8 +41,8 @@ SVG_NAMESPACE: str = "http://www.w3.org/2000/svg"
 ANDROID_NAMESPACE: str = "{http://schemas.android.com/apk/res/android}"
 
 # Prefix strings used during color resolution of non-16-bit integers.
-USER_MADE_COLOR_PREFIX = "@color/"
 SDK_COLOR_PREFIX = "@android:color/"
+USER_MADE_COLOR_PREFIX = "@color/"
 
 # A collection of built-in color names from the Android SDK and their associated Hex Values.
 # Pulled from https://developer.android.com/reference/android/graphics/Color#constants_1
@@ -120,6 +120,7 @@ STRING_RESOURCES_MAP: Dict[str, str] = {}
 
 ################### Input Mutatation Functions ###################
 
+
 def set_color_resource_map() -> None:
     global COLOR_RESOURCES_MAP
     try:
@@ -146,9 +147,12 @@ def set_string_resource_map() -> None:
 
 #################### Formatting Helper Functions ####################   
 
-# If a fill_color is only 3 or 4 characters, it is missing one of each R, G, B, and potentially A (Alpha).
-# An expanded fill_color will be returned if the length is 3 or 4, otherwise, the original value is returned.
+
 def expand_fc_if_needed(fill_color: str) -> str:
+    """
+    If a fill_color is only 3 or 4 characters, it is missing one of each R, G, B, and potentially A (Alpha).
+    An expanded fill_color will be returned if the length is 3 or 4, otherwise, the original value is returned.
+    """
     if not fill_color.startswith("#"): 
         return fill_color
     
@@ -194,10 +198,9 @@ def expand_fc_if_needed(fill_color: str) -> str:
     return fill_color
 
     
-
-
-# Checks if the current fill color is a color reference, if so, additional resolution is required.
 def fc_has_color_reference(fill_color: str) -> bool:
+    """Checks if the current fill color is a color reference, if so, additional resolution is required."""
+
     if not isinstance(fill_color, str):
         return False
 
@@ -212,14 +215,13 @@ def fc_has_color_reference(fill_color: str) -> bool:
     return False
     
 
-# Checking if a hex sequence is valid PRIOR to any conversion attempts, ultimately to save cpu cycles.
 def fc_is_already_hex(fill_color: str) -> bool:
+    """Checking if a hex sequence is valid PRIOR to any conversion attempts, ultimately to save cpu cycles."""
     return True if HEX_COLOR_PATTERN.fullmatch(fill_color) else False
 
 
-# Checking if the provided contents contains the Android Open Source Project (AOSP)'s Copyright.
 def has_aosp_copyright(contents: str) -> bool:
-
+    """Checking if the provided contents contains the Android Open Source Project (AOSP)'s Copyright."""
     PATTERN = r"Copyright\s+\(C\)\s+\d{4}.*?The\s+Android\s+Open\s+Source\s+Project"
 
     REGEX = compile(PATTERN, FLAGS)
@@ -227,27 +229,29 @@ def has_aosp_copyright(contents: str) -> bool:
     return REGEX.search(contents) is not None
 
 
-# Checking if the provided contents contains the expected XML header attribute.   
+
 def has_xml_header(contents: str) -> bool:
+    """Checking if the provided contents contains the expected XML header attribute."""
     return contents.startswith('<?xml version="1.0" encoding="utf-8"?>')
 
 
-# Checks if the current path data is a string reference, if so, additional resolution is required.
 def pd_has_string_reference(path_data: str) -> bool:
+    """Checks if the current path data is a string reference, if so, additional resolution is required."""
     if not isinstance(path_data, str):
         return False
 
     return False if not path_data else "@string/" in path_data
 
 
-# Both of the checks below are non-fatal and serve primarily for debugging purposes.
-#
-# It is entirely possible to parse a raw <vector>...</vector> however:
-#
-# The AOSP releases standardized DrawableVectors here:
-# https://cs.android.com/androidx/platform/frameworks/support/+/androidx-main:vectordrawable/vectordrawable/src/androidTest/res/
-
 def check_drawable_vector_format(drawable_vector_contents: str):
+    """
+    Both of the checks below are non-fatal and serve primarily for debugging purposes.
+    
+    It is entirely possible to parse a raw <vector>...</vector> however:
+    
+    The AOSP releases standardized DrawableVectors here:
+    https://cs.android.com/androidx/platform/frameworks/support/+/androidx-main:vectordrawable/vectordrawable/src/androidTest/res/
+    """
     
     if not has_xml_header(drawable_vector_contents):
         print(f"[WARNING]: The XML header is missing for: {DRAWABLE_XML_FILEPATH}")
@@ -255,7 +259,7 @@ def check_drawable_vector_format(drawable_vector_contents: str):
         print("[INFO]: Attempting to continue..")
     
     if not has_aosp_copyright(drawable_vector_contents):
-        print(f"[WARNING]: The Android Open Source Project (AOSP) copyright was not located.")
+        print("[WARNING]: The Android Open Source Project (AOSP) copyright was not located.")
         print("[WARNING]: This may impact the result of the current conversion.")
         print("[INFO]: Attempting to continue..")
 
@@ -267,8 +271,8 @@ def check_drawable_vector_format(drawable_vector_contents: str):
 #################### File Parsing Functionality ####################
 
 
-# Parses the DrawableVector XML and returns its contents as a string, or exits on an exception.
 def load_drawable_vector_xml(drawable_vector_path: str) -> str:
+    """Parses the DrawableVector XML and returns its contents as a string, or exits on an exception."""
     try:
         with open(drawable_vector_path, "r", encoding="utf-8") as file:
             return file.read()
@@ -279,8 +283,10 @@ def load_drawable_vector_xml(drawable_vector_path: str) -> str:
         exit(1)
 
 
-# Parses colors.xml into a Dict[str, str] or exits on an exception.
+
 def load_color_map_xml(colors_xml_path: str) -> Dict[str, str]:
+    """Parses colors.xml into a Dict[str, str] or exits on an exception."""
+    
     color_map = {
         "": BLACK_HEX # Used as the default return value if resolution fails.
     }
@@ -304,8 +310,9 @@ def load_color_map_xml(colors_xml_path: str) -> Dict[str, str]:
     return color_map
 
 
-# Parses strings.xml into a Dict[str, str] or exits on an exception.
+
 def load_string_map_xml(string_xml_path: str) -> Dict[str, str]:
+    """Parses strings.xml into a Dict[str, str] or exits on an exception."""
     string_map = {}
     
     tree: Optional[ElementTree] = None
@@ -333,27 +340,29 @@ def load_string_map_xml(string_xml_path: str) -> Dict[str, str]:
 
 #################### Resource Resolution ####################
 
-# Takes a resolved color resource from colors.xml as input.
-#
-# If the referenced string is already in hex:
-#   - The current value is returned without modifications.
-#
-# If the referenced string is a color reference:
-#   - It starts with either "@android:color/" or "@color/" (if user-defined) 
-#   - A lookup is performed on this key using COLOR_RESOURCES_MAP
 
 def resolve_color_reference(color_reference_key: str) -> str:
+    """
+    Takes a resolved color resource from colors.xml as input.
 
+    If the referenced string is already in hex:
+        - The current value is returned without modifications.
+
+    If the referenced string is a color reference:
+        - It starts with either "@android:color/" or "@color/" (if user-defined) 
+        - A lookup is performed on this key using COLOR_RESOURCES_MAP
+
+    """
     result: Optional[str] = None
 
     # Removing the SDK prefix then returning the built-in color's equivalent Hex Code.
-    if color_reference_key.startswith("@android:color/"):
-        color_reference_key = color_reference_key.removeprefix("@android:color/")
+    if color_reference_key.startswith(SDK_COLOR_PREFIX):
+        color_reference_key = color_reference_key.removeprefix(SDK_COLOR_PREFIX)
         result = (GRAPHICS_COLOR_MAP or {}).get(color_reference_key)
     
     # Removing the color resource prefix then returning the user-defined Hex Code representation.
-    elif color_reference_key.startswith("@color/"):
-        color_reference_key = color_reference_key.removeprefix("@color/")
+    elif color_reference_key.startswith(USER_MADE_COLOR_PREFIX):
+        color_reference_key = color_reference_key.removeprefix(USER_MADE_COLOR_PREFIX)
         result = (COLOR_RESOURCES_MAP or {}).get(color_reference_key)
 
     # Warning the user the resolution failed and ADAS will fallback to BLACK_HEX (#000000)
@@ -369,14 +378,16 @@ def resolve_color_reference(color_reference_key: str) -> str:
     return result if fc_is_already_hex(result) else BLACK_HEX
 
 
-# Takes a resolved string resource from string.xml as input.
-#
-# A lookup is performed using STRING_RESOURCES_MAP.
-
 def resolve_string_reference(string_reference_key: str) -> str:
+    """
+    Takes a resolved string resource from string.xml as input.
+
+    A lookup is performed using STRING_RESOURCES_MAP.
+    """
+
     if not string_reference_key:
         print(f"[WARNING]: An empty value was returned using the key '{string_reference_key}'.")
-        print(f"[WARNING]: This may cause the converted SVG to be malformed.")
+        print("[WARNING]: This may cause the converted SVG to be malformed.")
         return ""
 
     # Ensuring the resolved path data value is not a NoneType.
@@ -390,9 +401,13 @@ def resolve_string_reference(string_reference_key: str) -> str:
 
 #################### Conversion/Output Functionality ####################
 
-# Sanitizing numeric strings, namely the height and width properties that usually contain units.
-# While modern browsers will usually default to pixels when faced with an unsupported unit, this ensures broad compatibility.
+
 def remove_units_from_numeric_string(numeric_string: str):
+    """
+    Sanitizing numeric strings, namely the height and width properties that usually contain units.
+    While modern browsers will usually default to pixels when faced with an unsupported unit, this ensures broad compatibility.
+    """
+    
     return (numeric_string
         .replace("dp", "")
         .replace("px", "")
@@ -400,9 +415,11 @@ def remove_units_from_numeric_string(numeric_string: str):
     )
 
 
-# Parses each path node from the provided list of paths. 
+
 def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
-    
+    """
+    Parses each path node from the provided list of paths. 
+    """
     path_elements = []
     
     for path_node in paths:
@@ -448,8 +465,11 @@ def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
     return path_elements
 
 
-# Used in convert_drawable_to_svg() to output the contents of the converted SVG.
+
 def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, str]]):
+    """
+    Used in convert_drawable_to_svg() to output the contents of the converted SVG.
+    """
     
     # This list holds all <path> elements that were parsed from the input XML.
     path_elements: List[str] = parse_nodes_from_xml_paths(paths)
@@ -487,8 +507,9 @@ def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, 
         print(f"[ERROR]: {e}")
 
 
-# Handles the conversion operations from XML to SVG.
+
 def convert_drawable_to_svg():
+    """Handles the conversion operations from XML to SVG."""
     if USING_COLOR_RESOURCES:
         set_color_resource_map()
 
