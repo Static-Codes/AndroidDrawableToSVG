@@ -125,10 +125,6 @@ def has_multiple_map_args(MAP_XML_FILEPATH: str) -> bool:
     return ";" in MAP_XML_FILEPATH
 
 
-def remove_angle_brackets(MAP_XML_FILEPATH: str) -> str:
-    return MAP_XML_FILEPATH.removeprefix('<').removesuffix('>')
-
-
 def set_color_resource_map() -> None:
     global COLOR_RESOURCES_MAP
     global COLORS_XML_FILEPATH
