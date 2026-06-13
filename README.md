@@ -42,11 +42,11 @@ python3 adas.py [OPTIONS]
 | Argument | Description | Required |
 | :--- | :--- | :--- |
 | `-h`, `--help` | Displays more detailed information on supported commands. | No |
-| `-d`, `--drawable=<path/to/drawable.xml>` | Defines the drawable you wish to convert. | **Yes** |
-| `-o`, `--output=<path/to/output.svg>` | Defines the filename/filepath to used for the converted SVG. | **Yes** |
-| `-c`, `--colors=<path/to/colors.xml>` | Defines the filepath to used for resolving color references. | **No** |
-| `-s`, `--strings=<path/to/strings.xml>` | Defines the filepath to used for resolving string references. | **No** |
-| `-v`, `--version=<version>` | Prints the current version of ADAS. | No |
+| `-d path/to/drawable.xml`, `--drawable=path/to/drawable.xml` | Defines the drawable you wish to convert. | **Yes** |
+| `-o path/to/output.svg`, `--output=path/to/output.svg` | Defines the filename/filepath to used for the converted SVG. | **Yes** |
+| `-c path/to/colors.xml`, `--colors=path/to/colors.xml`, `--colors=path1;path2;path3` | Defines the filepath(s) to used for resolving color references. | **No** |
+| `-s path/to/strings.xml`, `--strings=path/to/strings.xml`, `--strings=path1;path2;path3` | Defines the filepath(s) to used for resolving string references. | **No** |
+| `-v`, `--version` | Prints the current version of ADAS. | No |
 
 
 ## Known Limitations/Issues

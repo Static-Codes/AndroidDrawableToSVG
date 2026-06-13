@@ -11,7 +11,7 @@ sys.dont_write_bytecode = True
 from getopt import getopt, GetoptError
 from os import path
 from re import compile, DOTALL, Pattern, RegexFlag, search, VERBOSE
-from typing import List, Dict, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 from xml.etree import ElementTree
 from xml.etree.ElementTree import parse, ParseError, fromstring
 
@@ -120,28 +120,99 @@ STRING_RESOURCES_MAP: Dict[str, str] = {}
 
 ################### Input Mutatation Functions ###################
 
+def has_multiple_map_args(MAP_XML_FILEPATH: str) -> bool:
+    """Returns True if MAP_XML_FILEPATH has multiple filepaths specified, otherwise False."""
+    return ";" in MAP_XML_FILEPATH
+
+
+def remove_angle_brackets(MAP_XML_FILEPATH: str) -> str:
+    return MAP_XML_FILEPATH.removeprefix('<').removesuffix('>')
+
 
 def set_color_resource_map() -> None:
     global COLOR_RESOURCES_MAP
+    global COLORS_XML_FILEPATH
+
+
+    # Removing the leading and trailing angle brackets ("<" and ">"), if present.
+    COLORS_XML_FILEPATH = COLORS_XML_FILEPATH.lstrip('<').rstrip('>')
+
+    resources: List[str]
+
+    # Separating the resources if multiple were provided, otherwise creating a list with one element.
+    if has_multiple_map_args(COLORS_XML_FILEPATH):
+        resources = COLORS_XML_FILEPATH.split(";")
+    else:
+        resources = [COLORS_XML_FILEPATH]
+
+    valid_resources = [res for res in resources if path.exists(res)]
+    resources = None
+
+
     try:
-        COLOR_RESOURCES_MAP = load_color_map_xml(COLORS_XML_FILEPATH)
+        number_of_resources = len(valid_resources)
+
+        if number_of_resources == 0:
+            raise Exception("No valid resources were provided, please check your paths.")
+
+        elif number_of_resources == 1:
+            COLOR_RESOURCES_MAP = load_color_map_xml(valid_resources[0])
+            return
+
+        COLOR_RESOURCES_MAP = flatten_multiple_maps(COLOR_RESOURCES_MAP, valid_resources, load_color_map_xml)
+
     except Exception as e:
         print("[WARNING]: A fatal error occured while loading COLORS_XML_FILEPATH.")
         print(f"[ERROR]: {e}")
         exit(1)
 
-
+        
 def set_string_resource_map() -> None:
     global STRING_RESOURCES_MAP
+    global STRINGS_XML_FILEPATH
+
+    
+    # Removing the leading and trailing angle brackets ("<" and ">")
+    STRINGS_XML_FILEPATH = STRINGS_XML_FILEPATH.lstrip('<').rstrip('>')
+
+    resources: List[str]
+
+    # Separating the resources if multiple were provided, otherwise creating a list with one element.
+    if has_multiple_map_args(STRINGS_XML_FILEPATH):
+        resources = STRINGS_XML_FILEPATH.split(";")
+
+    else:
+        resources = [STRINGS_XML_FILEPATH]
+
+    
+    valid_resources = [res for res in resources if path.exists(res)]
+    resources = None
+
+    
     try:
-        STRING_RESOURCES_MAP = load_string_map_xml(STRINGS_XML_FILEPATH)
+        number_of_resources = len(valid_resources)
+
+        if number_of_resources == 0:
+            raise Exception("No valid resources were provided, please check your paths.")
+
+        elif number_of_resources == 1:
+            STRING_RESOURCES_MAP = load_string_map_xml(valid_resources[0])
+            return
+
+        STRING_RESOURCES_MAP = flatten_multiple_maps(STRING_RESOURCES_MAP, valid_resources, load_string_map_xml)
+        
+
     except Exception as e:
         print("[WARNING]: A fatal error occured while loading STRING_RESOURCES_MAP.")
         print(f"[ERROR]: {e}")
         exit(1)
 
 
-
+def flatten_multiple_maps(map_obj: Dict[str, str], resources: List[str], func: Callable[[str], Dict[str, str]]) -> Dict[str, str]:
+    """Flattening each map into a single unified map."""
+    for resource in resources:
+        map_obj = map_obj | func(resource)
+    return map_obj
 
 
 
@@ -187,16 +258,15 @@ def expand_fc_if_needed(fill_color: str) -> str:
     # Much 4 char hex sequences, 8 char sequences also require alpha channel flipping.
     # There are other aspects of SVG compliance that were covered in the guide above, however, none apply here.
     elif length == 9:
-        alpha = fill_color[1] + fill_color[2]
-        red = fill_color[3] + fill_color[4]
-        green = fill_color[5] + fill_color[6]
-        blue = fill_color[7] + fill_color[8]
+        alpha = fill_color[1:3]
+        red = fill_color[3:5]
+        green = fill_color[5:7]
+        blue = fill_color[7:9]
 
         return f"#{red}{green}{blue}{alpha}"
 
     # Falling back to original input, since it can't safely be expanded.
     return fill_color
-
     
 def fc_has_color_reference(fill_color: str) -> bool:
     """Checks if the current fill color is a color reference, if so, additional resolution is required."""
@@ -229,7 +299,6 @@ def has_aosp_copyright(contents: str) -> bool:
     return REGEX.search(contents) is not None
 
 
-
 def has_xml_header(contents: str) -> bool:
     """Checking if the provided contents contains the expected XML header attribute."""
     return contents.startswith('<?xml version="1.0" encoding="utf-8"?>')
@@ -241,6 +310,36 @@ def pd_has_string_reference(path_data: str) -> bool:
         return False
 
     return False if not path_data else "@string/" in path_data
+
+
+def split_fc_if_needed(fill_color: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Takes a hex sequence string, if the string is not formatted as #RRGGBBAA, it is not modified.
+    
+    modified_hex: str | Contains #RRGGBB (if the condition above is met) or None.
+    alpha_str | Contains a string representation of a decimal (float) ranging from 0.0 to 1.0 or None
+
+    Returns either:
+    - 1. Tuple[modified_hex, alpha_str]
+    - 2. Tuple[fill_color, None]
+    """
+
+    length: int = len(fill_color)
+
+    # Ensuring the color is in compliant format (#AARRGGBB) before continuing.
+    if (not fill_color) or (not fill_color.startswith('#')) or (length != 9):
+        return (fill_color, None)
+    
+    # Grabbing the alpha channel hex value (AA from #RRGGBBAA)
+    raw_alpha_hex: str = fill_color[length - 2:]
+
+    # Grabbing the first 7 chars in the sequence (#RRGGBB from #RRGGBBAA)
+    modified_hex: str = fill_color[0:7]
+
+    # Converting the alpha channel from hex to dec then returning its string representation.
+    alpha_str: str = convert_alpha_hex_to_decimal_str(raw_alpha_hex)
+
+    return (modified_hex, alpha_str)
 
 
 def check_drawable_vector_format(drawable_vector_contents: str):
@@ -262,6 +361,50 @@ def check_drawable_vector_format(drawable_vector_contents: str):
         print("[WARNING]: The Android Open Source Project (AOSP) copyright was not located.")
         print("[WARNING]: This may impact the result of the current conversion.")
         print("[INFO]: Attempting to continue..")
+
+
+def resolve_and_format_stroke_color(path_node: Dict[str, str]) -> str:
+    """
+    Extracts the strokeColor and Resolves associated color references, if present.
+    Expands short hex sequences, if present.
+    Returns the stroke color, if defined, otherwise, an empty string.
+    """
+    final_stroke_color = path_node.get("strokeColor")
+    
+    if not final_stroke_color:
+        return ""
+    
+    if fc_has_color_reference(final_stroke_color):
+        final_stroke_color = resolve_color_reference(final_stroke_color)
+    
+    final_stroke_color = expand_fc_if_needed(final_stroke_color)
+    return f' stroke="{final_stroke_color}"'
+
+
+def format_stroke_width(path_node: Dict[str, str]) -> str:
+    """
+    Extracts and sanitizes the strokeWidth attribute, if present. 
+    Ensures the value is sanitized and represents a valid floating-point number.
+    Returns an SVG compliant stroke-width attribute string, if valid, otherwise an empty string.
+    """
+    stroke_width = path_node.get("strokeWidth")
+
+    if not stroke_width:
+        return ""
+
+    # Isolating the numeric portion of the stroke width string.
+    # Converts "1.5dp" to "1.5", etc.
+    sanitized_stroke_width = remove_units_from_numeric_string(stroke_width)
+
+    # If the explicit float cast fails, then the value provided is not a valid width.
+    try:
+        float(sanitized_stroke_width)
+        return f' stroke-width="{sanitized_stroke_width}"'
+        
+    except ValueError:
+        print(f"[WARNING]: Invalid float format encountered for strokeWidth: '{stroke_width}'")
+        print("[INFO]: Skipping stroke-width attribute for this path.")
+        return ""
 
 
 
@@ -321,7 +464,7 @@ def load_string_map_xml(string_xml_path: str) -> Dict[str, str]:
     try:
         tree = parse(string_xml_path)
     except Exception as e:
-        print("[WARNING]: Unable to load the color map for the specified file.")
+        print("[WARNING]: Unable to load the string map for the specified file.")
         print(f"[ERROR]: {e}")
         exit(1)
         
@@ -402,6 +545,21 @@ def resolve_string_reference(string_reference_key: str) -> str:
 #################### Conversion/Output Functionality ####################
 
 
+def convert_alpha_hex_to_decimal_str(alpha_hex: str) -> str:
+    """
+    Takes a 2 character hex sequence (ie. #AA) and converts it to a decimal (float) between 0.0 and 1.0.
+    """
+    try:
+        # Converting the base-16 string to an 32 bit integer.
+        # Mapping this converted integer to a decimal scale (0.0 - 1.0).
+        alpha_val = int(alpha_hex, 16) / 255.0
+        return str(round(alpha_val, 3))
+    except ValueError:
+        print(f"[WARNING]: Could not convert alpha channel '{alpha_hex}'.")
+        print("[INFO]: Falling back to default value of '1.0'.")
+        return "1.0"
+
+
 def remove_units_from_numeric_string(numeric_string: str):
     """
     Sanitizing numeric strings, namely the height and width properties that usually contain units.
@@ -415,7 +573,6 @@ def remove_units_from_numeric_string(numeric_string: str):
     )
 
 
-
 def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
     """
     Parses each path node from the provided list of paths. 
@@ -423,24 +580,34 @@ def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
     path_elements = []
     
     for path_node in paths:
-        final_fill_color: str = path_node.get("fillColor") or BLACK_HEX
+        raw_fill_color: str = path_node.get("fillColor") or BLACK_HEX
         final_path_data: str = path_node.get("pathData") or ""
         final_fill_type: str = path_node.get("fillType") or ""
         
         # Handling color references via string resolution.
-        if fc_has_color_reference(final_fill_color):
-            final_fill_color = resolve_color_reference(final_fill_color)
+        if fc_has_color_reference(raw_fill_color):
+            raw_fill_color = resolve_color_reference(raw_fill_color)
 
         # Handling string references via string resolution.
         if pd_has_string_reference(final_path_data):
             string_reference_key = final_path_data.removeprefix("@string/")
             final_path_data = resolve_string_reference(string_reference_key)
         
-        # Performing a conditional expansion of the final color, if required.
-        final_fill_color = expand_fc_if_needed(final_fill_color)
+        # Performing a conditional expansion of the raw fill color, if required.
+        raw_fill_color = expand_fc_if_needed(raw_fill_color)
+
+        # If the raw color contains 8 hex digits, its alpha channel is removed and returned separately.
+        (sanitized_fill_color, alpha_str) = split_fc_if_needed(raw_fill_color)
+
+        # Conditionally appending either the unmodified fill color or the sanitized 6 digit hex sequence.
+        final_fill_color = raw_fill_color if alpha_str is None else sanitized_fill_color
         
         # Building and appending each path element at the end of the current iteration.
         path_element = '<path fill="' + final_fill_color + '"'
+
+        # Conditionally appending fill-opacity if the alpha channel has successfully been separated.
+        if alpha_str:
+            path_element += ' fill-opacity="' + alpha_str + '"'
         
         # Conditionally appending the result from the conversion "fillColor=" to "fill-rule=", if present.
         # Unlike the other optional arguments, the value for the SVG fill-rule attribute must be all lowercase.
@@ -448,13 +615,12 @@ def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
         if final_fill_type:
             path_element += ' fill-rule="' + final_fill_type.lower() + '"'
 
-        # Conditionally appending the result from the conversion "strokeColor=" to "stoke=", if present.
-        if path_node.get("strokeColor"):
-            path_element += ' stroke="' + path_node.get("strokeColor") + '"'
 
-        # Conditionally appending the result from the conversion "strokeColor=" to "stoke=", if present.
-        if path_node.get("strokeWidth"):
-            path_element += ' stroke-width="' + path_node.get("strokeWidth") + '"'
+        # Conditionally appending the conversion result from "strokeColor=" to "stroke-color=", if present.
+        path_element += resolve_and_format_stroke_color(path_node)
+
+        # Conditionally appending the conversion result from "strokeWidth=" to "stroke-width=", if present.
+        path_element += format_stroke_width(path_node)
 
         # An SVG is nothing if not for path data, so this is an expected value.
         path_element += ' d="' + final_path_data + '"/>'
@@ -463,7 +629,6 @@ def parse_nodes_from_xml_paths(paths: List[Dict[str, str]]) -> List[str]:
         path_elements.append(path_element)
     
     return path_elements
-
 
 
 def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, str]]):
@@ -505,7 +670,6 @@ def write_output_svg(metadata_attributes: Dict[str, str], paths: List[Dict[str, 
     except Exception as e:
         print(f"[WARNING]: Unable to export: {OUTPUT_SVG_FILEPATH}")
         print(f"[ERROR]: {e}")
-
 
 
 def convert_drawable_to_svg():
@@ -582,17 +746,27 @@ def usage():
     )
 
     print(
-        "2.    [ -d <drawable.xml> | --drawable=<drawable> ]\n"
+        "2.    [ -d path/to/drawable.xml | --drawable=path/to/drawable.xml ]\n"
         "\tSpecifies the drawable you wish to convert to an SVG.\n"
     )
 
     print(
-        "3.    [ -o <output.svg> | --output=<output.svg> ]\n"
+        "3.    [ -o path/to/output.svg | --output=path/to/output.svg ]\n"
         "\tSpecifies the filename to be used for the converted SVG.\n"
     )
 
     print(
-        "4.    [ -v <version> | --version=<version> ]\n"
+        "4.    [ -s path/to/strings.xml | --strings=path/to/strings.xml | --strings=path1;path2;path3 ]"
+        "\tSpecifies the filename(s) to be used for user-defined values."
+    )
+
+    print(
+        "5.    [ -c path/to/colors.xml | --colors=path/to/colors.xml | --colors=path1;path2;path3 ]"
+        "\tSpecifies the filename(s) to be used for user-defined values."
+    )
+
+    print(
+        "6.    [ -v <version> | --version=<version> ]\n"
         "\tPrints the current version of ADAS.\n"
     )
 
@@ -601,8 +775,8 @@ def set_args(argv: List[str]):
     try:
         opts, _ = getopt(
             argv[1:], 
-            "d:o:c:s:v:h", 
-            ["drawable=", "output=", "colors=", "strings=", "version=", "help"]
+            "d:o:c:s:vh", 
+            ["drawable=", "output=", "colors=", "strings=", "version", "help"]
         )
         
     except GetoptError:
@@ -610,6 +784,8 @@ def set_args(argv: List[str]):
         exit(2)
 
     for opt, arg in opts:
+        
+        # Handles both "adas.py -h" and "adas.py --help"
         if opt == "-h" or opt == "--help":
             usage()
             exit(1)
@@ -625,7 +801,11 @@ def set_args(argv: List[str]):
             global OUTPUT_SVG_FILEPATH
             OUTPUT_SVG_FILEPATH = path.expanduser(arg)
 
-        # Handles both "-c <colors.xml>" and "--colors=<colors.xml>"
+        # Handles:
+        # "-c <colors.xml>"
+        # "-c <colors1.xml:colors2.xml:colors3.xml>"
+        # "--colors=<colors.xml>"
+        # "--colors=<colors1.xml:colors2.xml:colors3.xml>"
         elif opt == "-c" or opt == "--colors":
             global COLORS_XML_FILEPATH
             COLORS_XML_FILEPATH = path.expanduser(arg)
@@ -633,9 +813,14 @@ def set_args(argv: List[str]):
             global USING_COLOR_RESOURCES
             USING_COLOR_RESOURCES = True
 
-        # Handles both "-s <strings.xml>" and "--strings=<strings.xml>"
+        # Handles:
+        # "-s <strings.xml>"
+        # "-s <strings1.xml:strings2.xml:strings3.xml>"
+        # "--strings=<strings.xml>"
+        # "--strings=<strings1.xml:strings2.xml:strings3.xml>"
         elif opt == "-s" or opt == "--strings":
             global STRINGS_XML_FILEPATH
+
             STRINGS_XML_FILEPATH = path.expanduser(arg)
             
             global USING_STRING_RESOURCES

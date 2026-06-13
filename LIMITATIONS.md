@@ -15,13 +15,7 @@
     - Other namespaces (like `app:`) will cause ADAS to throw a fatal exception.
     - To fix this, use a text editor to replace the existing namespace with `android:`
 
-- 5. **ADAS** does not support flattening of multiple `colors.xml` and `strings.xml` files.
-    - If your VectorDrawable requires this, you will have to:
-        - Combine all color reference files into one large `colors.xml` file.
-        - Repeat the step above for all string reference files into `strings.xml`
-        - Pass the additional arguments `--colors=<path/to/colors.xml> --strings=<path/to/strings>` to `adas.py`
-
-- 6. **ADAS** does not support `<resources>` as an XML root namespace, only the `<vector>` root namespace can be converted.
+- 5. **ADAS** does not support `<resources>` as an XML root namespace, only the `<vector>` root namespace can be converted.
 
 - 6. **ADAS** does not support attribute references (`?attr`).
 
