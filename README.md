@@ -49,8 +49,8 @@ python3 adas.py [OPTIONS]
 | `-v`, `--version` | Prints the current version of ADAS. | No |
 
 
-## Known Limitations/Issues
-For the complete list of known limitations and issues, please see [this](LIMITATIONS.md) file.
+## Known Limitations
+For the complete list of known limitations, please see [this](LIMITATIONS.md) file.
 
 
 
