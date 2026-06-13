@@ -55,5 +55,5 @@ For the complete list of known limitations, please see [this](LIMITATIONS.md) fi
 
 
 ## Future QoL Plans
-- Addressing the Limitations/Issues above.
+- Addressing the Limitations above.
 - Replacing `getopt` with `argparse` for easier maintainability.
